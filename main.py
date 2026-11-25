@@ -8,8 +8,10 @@ not only whitespace, on a single line.
 Run:
     python3 main.py              # write /output/entry.txt
     python3 main.py --self-test  # validate the gate and the written file
+    python3 main.py --output /tmp/entry.txt   # write somewhere else (local test)
 """
 
+import argparse
 import os
 import sys
 
@@ -42,25 +44,39 @@ def valid(text):
     return True
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Write the Robot Romance entry line.")
+    parser.add_argument("--output", default=OUTPUT_PATH,
+                        help="where to write entry.txt (default: %(default)s)")
+    parser.add_argument("--self-test", action="store_true",
+                        help="validate the gate and the written file")
+    args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test(args.output)
     if not valid(LINE):
         print("entry line fails the gate", file=sys.stderr)
         return 1
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    with open(OUTPUT_PATH, "w", encoding="utf-8", newline="") as f:
+    return write_entry(args.output)
+
+
+def write_entry(path):
+    """Write LINE to path and verify the bytes on disk are exactly LINE
+    encoded as UTF-8, with no trailing newline."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(LINE)
-    with open(OUTPUT_PATH, "r", encoding="utf-8", newline="") as f:
-        written = f.read()
-    if written != LINE:
+    with open(path, "rb") as f:
+        raw = f.read()
+    if raw != LINE.encode("utf-8"):
         print("read-back mismatch", file=sys.stderr)
         return 1
-    print("wrote %d chars to %s" % (len(LINE), OUTPUT_PATH))
+    print("wrote %d chars to %s" % (len(LINE), path))
     return 0
 
 
-def self_test():
+def self_test(output=OUTPUT_PATH):
     """Checks the gate's rejection cases and the boundary cases, then
-    writes the entry and verifies the read-back byte for byte."""
+    writes the entry and verifies the bytes on disk byte for byte."""
     cases = [
         ("", False),
         ("   ", False),
@@ -82,18 +98,22 @@ def self_test():
         if got != expected:
             print("FAIL valid(%r) = %s, expected %s" % (text, got, expected))
             failures += 1
-    rc = main()
+    rc = write_entry(output)
     if rc != 0:
-        print("FAIL main() returned %d" % rc)
+        print("FAIL write_entry() returned %d" % rc)
         failures += 1
+    else:
+        with open(output, "rb") as f:
+            raw = f.read()
+        if raw != LINE.encode("utf-8") or raw.endswith(b"\n"):
+            print("FAIL written bytes are not exactly the line")
+            failures += 1
     if failures:
         print("self-test: %d failure(s)" % failures)
         return 1
-    print("self-test: all %d checks passed" % (len(cases) + 1))
+    print("self-test: all %d checks passed" % (len(cases) + 2))
     return 0
 
 
 if __name__ == "__main__":
-    if "--self-test" in sys.argv[1:]:
-        sys.exit(self_test())
     sys.exit(main())
